@@ -2,6 +2,11 @@
 
 **Try it in your browser: https://poctave.github.io/vol-lab/**
 
+
+<img width="1470" height="806" alt="image" src="https://github.com/user-attachments/assets/93d59786-09e6-4490-8441-671631b05374" />
+
+<img width="1470" height="715" alt="image" src="https://github.com/user-attachments/assets/06115092-2f48-4e3b-83d2-091de92830d8" />
+
 An options and volatility sandbox that runs in the browser. You control the market and see how any position behaves.
 
 - **Position builder**: free strikes and maturities per leg, delta hedge, presets from a book of 30+ strategies. The structure is named automatically.
