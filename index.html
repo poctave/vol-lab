@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vol Lab</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/terminal.css">
+<link rel="stylesheet" href="css/standalone.css">
+</head>
+<body>
+<div id="app"></div>
+<script src="js/_namespace.js"></script>
+<script src="js/theme.js"></script>
+<script src="js/options-math.js"></script>
+<script src="js/greeks-math.js"></script>
+<script src="js/data/option-strategies.js"></script>
+<script src="js/lab-engine.js"></script>
+<script src="js/frame.js"></script>
+<script src="js/views/options-lab-view.js"></script>
+<script>
+(function () {
+  window.M1.APP_BRAND = "VOL·LAB";
+  window.M1.lib.theme.init();
+  var root = document.getElementById("app");
+  var LV = window.M1.lib.optionsLabView, F = window.M1.lib.terminalFrame, teardown = null;
+  function render() {
+    if (teardown) teardown();
+    teardown = F.mount(root, { mainCls: "term-opt is-lab", main: LV.render(),
+      statusHints: '<kbd>l</kbd> light / dark', statusSegs: '<span class="seg">LAB</span>', remount: render });
+    LV.wire(root, { rerender: render });
+  }
+  render();
+})();
+</script>
+</body>
+</html>
