@@ -320,6 +320,17 @@
     });
   }
 
+  // The whole surface on one grid: rows = tenors (days), columns = points on a smile axis.
+  // z[i][j] = vol (pts) at tenor days[i] and smile coordinate xs[j]; arb[i] = that tenor's
+  // smile passes arbCheck. The 3D view and the smile panel read the same numbers.
+  function surface(m, axis, xs, days, shift) {
+    var z = days.map(function (d) { return smileCurve(m, d / 365, axis, xs, shift); });
+    var arb = days.map(function (d) { return arbCheck(m, d / 365).ok; });
+    var lo = Infinity, hi = -Infinity;
+    z.forEach(function (row) { row.forEach(function (v) { if (v < lo) lo = v; if (v > hi) hi = v; }); });
+    return { xs: xs, days: days, z: z, arb: arb, min: lo, max: hi };
+  }
+
   // ---------- scenario tools ----------
   var SPOT_SHOCKS = [-20, -10, -5, -2, 0, 2, 5, 10, 20];
   var VOL_SHOCKS = [-10, -5, -2, 0, 2, 5, 10];
@@ -403,7 +414,7 @@
     legValue: legValue, legCost: legCost, legIv: legIv, value: value, cost: cost, premium: premium, pnl: pnl,
     firstExpiry: firstExpiry, lastExpiry: lastExpiry,
     GREEK_IDS: GREEK_IDS, greeks: greeks, greek: greek, greekSeries: greekSeries, quotes: quotes, strikeForDelta: strikeForDelta,
-    callDelta: callDelta, smileX: smileX, smileK: smileK, smileCurve: smileCurve, arbCheck: arbCheck, nuAt: nuAt,
+    callDelta: callDelta, smileX: smileX, smileK: smileK, smileCurve: smileCurve, surface: surface, arbCheck: arbCheck, nuAt: nuAt,
     riskMatrix: riskMatrix, explain: explain, crossings: crossings,
     toBookLegs: toBookLegs, fromStrategy: fromStrategy, hedgeQty: hedgeQty
   };

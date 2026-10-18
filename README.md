@@ -13,6 +13,7 @@ An options and volatility sandbox that runs in the browser. You control the mark
 - **Market**: spot, rates, dividends, ATM vol and term structure, and a SABR smile (β = 1; ρ = skew, ν = vol-of-vol). Sticky-strike or sticky-moneyness dynamics. Each tenor has a no-arbitrage check.
 - **Payoff**: at expiry, today, or at a scenario horizon, with spot, vol and days sliders.
 - **Smile**: per maturity, plotted against strike, forward moneyness or delta, with 25Δ risk reversal and butterfly quotes.
+- **3D vol surface**: strike × maturity × implied vol. Drag to rotate, with camera presets (3D, smiles, term structure, top-down heatmap). Hover to read a point. ATM is drawn dashed, any tenor that admits arbitrage is drawn in red, and your legs sit on the surface.
 - **Greeks**: Δ Γ ν Θ vanna volga charm ρ, across spot or moneyness, at several horizons.
 - **P&L explain**: the scenario P&L split into Taylor terms plus a residual.
 - **Risk matrix**: spot shocks × vol shocks.

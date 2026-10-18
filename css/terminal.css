@@ -185,3 +185,16 @@ a.play-btn:hover { text-decoration: none; }
   .lx-bar .lb { width: 96px; }
 }
 .lx-legs td.lx-what { white-space: nowrap; }
+.lx-surf { display: block; width: 100%; height: auto; max-height: 420px; cursor: grab; touch-action: none; user-select: none; }
+.lx-surf:active { cursor: grabbing; }
+.lx-surf .sf-q { stroke: rgba(0, 0, 0, 0.28); stroke-width: 0.35; stroke-linejoin: round; }
+.lx-surf .sf-floor { fill: var(--t-panel2); stroke: var(--t-line2); stroke-width: 0.6; }
+.lx-surf .sf-grid { stroke: var(--t-line); stroke-width: 0.5; }
+.lx-surf .sf-axis { stroke: var(--t-line2); stroke-width: 0.8; }
+.lx-surf .sf-lbl { fill: var(--t-dim); font-size: 7px; font-family: inherit; dominant-baseline: middle; }
+.lx-surf .sf-ttl { fill: var(--t-faint); font-size: 7px; letter-spacing: 0.1em; font-family: inherit; dominant-baseline: middle; }
+.lx-surf .sf-atm { fill: none; stroke: var(--t-bright); stroke-width: 1.2; stroke-dasharray: 3 2; }
+.lx-surf .sf-arb { fill: none; stroke: var(--t-red); stroke-width: 1.6; }
+.lx-surf .sf-leg { stroke: var(--t-bg); stroke-width: 1.2; }
+.lx-surf .sf-hl { fill: none; stroke: var(--t-bright); stroke-width: 1.4; pointer-events: none; }
+.lx-ramp { display: inline-block; width: 70px; height: 7px; vertical-align: 0; border: 1px solid var(--t-line); }

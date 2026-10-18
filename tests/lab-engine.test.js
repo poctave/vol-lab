@@ -255,5 +255,27 @@
       // K/S = 110% with S = 100 is the 110 strike: gamma of a 110 call at spot 100
       near(bySpot[2], L.greeks(m, [{ t: "C", q: 1, k: 110, days: 91 }], { S: 100 }).gamma, 1e-9, "strike axis");
     });
+    it("3D surface: every row is that tenor's smile, with its range and arb flags", function () {
+      var m = mkt(), xs = [70, 85, 100, 115, 130], days = [30, 91, 365];
+      var s = L.surface(m, "strike", xs, days, 0);
+      expect(s.z.length).toBe(3);
+      days.forEach(function (d, i) {
+        var row = L.smileCurve(m, d / 365, "strike", xs, 0);
+        row.forEach(function (v, j) { near(s.z[i][j], v, 1e-12, "row " + d + "d"); });
+        expect(s.arb[i]).toBe(L.arbCheck(m, d / 365).ok);
+      });
+      var all = [].concat.apply([], s.z);
+      near(s.min, Math.min.apply(null, all), 1e-12, "min");
+      near(s.max, Math.max.apply(null, all), 1e-12, "max");
+      // equity skew: low strikes carry more vol than high strikes at every tenor
+      s.z.forEach(function (row) { expect(row[0] > row[4]).toBe(true); });
+      // a scenario shift moves the whole surface in parallel
+      var up = L.surface(m, "strike", xs, days, 2);
+      near(up.z[1][2] - s.z[1][2], 2, 1e-9, "parallel shift");
+    });
+    it("3D surface: flat market gives a flat sheet", function () {
+      var s = L.surface(mkt(FLAT), "moneyness", [80, 100, 120], [30, 365], 0);
+      near(s.max - s.min, 0, 1e-6, "flat");
+    });
   });
 })();

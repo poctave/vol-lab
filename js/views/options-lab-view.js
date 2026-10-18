@@ -5,7 +5,8 @@
 //   BLD position builder (free strike, free maturity per leg, hedge Δ, book presets)
 //   MKT market: spot, r, q, ATM vol, term structure, SABR ρ / ν, smile dynamics, presets, arb check
 //   PNL payoff: expiry / today / scenario horizon, with spot · vol · days sliders
-//   SML the smile per maturity, legs as dots, 25Δ RR / BF quotes
+//   SML the smile per maturity, legs as dots, 25Δ RR / BF quotes — or the whole surface in 3D
+//       (strike × maturity × vol, drag to rotate, camera presets, hover readout)
 //   GRK any Greek across spot or across strike moneyness, at up to four horizons
 //   EXP P&L explain: the scenario's P&L split into Taylor terms + residual
 //   RSK risk matrix: spot shocks × vol shocks; click a cell to go there
@@ -28,7 +29,7 @@
   ];
   var CURVE = ["var(--t-blue)", "var(--t-amber)", "var(--t-purple)", "var(--t-src-mental-math)", "var(--t-src-masters)"];
 
-  var S = null;   // { mkt, legs, scen: { spotPct, shift, elapsed }, ui: { greek, axis, horizons, smileX } }
+  var S = null;   // { mkt, legs, scen: { spotPct, shift, elapsed }, ui: { greek, axis, horizons, smileX, smView, cam } }
 
   function fresh() {
     return {
@@ -190,7 +191,7 @@
     return panel("BLD", "LAB · POSITION", '', bldControls() + '<div id="lx-legs">' + outLegs() + '</div>') +
       panel("MKT", "MARKET", '<span class="td">the lab’s own surface</span>', mktControls() + '<div id="lx-mkt">' + outMkt() + '</div>') +
       panel("PNL", "PAYOFF · SCENARIO", "", '<div id="lx-pnl">' + outPnl() + '</div>' + pnlControls()) +
-      panel("SML", "VOL SMILE", "", smlControls() + '<div id="lx-smile">' + outSmile() + '</div>') +
+      panel("SML", S.ui.smView === "3d" ? "VOL SURFACE" : "VOL SMILE", "", smlControls() + '<div id="lx-smile">' + outSmile() + '</div>') +
       panel("GRK", "GREEKS ACROSS " + (S.ui.axis === "strike" ? "MONEYNESS" : "SPOT"), "", grkControls() + '<div id="lx-grk">' + outGreek() + '</div>') +
       panel("EXP", "P&L EXPLAIN", '<span class="td">start → scenario</span>', '<div id="lx-exp">' + outExplain() + '</div>') +
       panel("RSK", "RISK MATRIX", '<span class="td">P&amp;L · spot shock × vol shock · at day ' + '<span id="lx-rsk-day">' + S.scen.elapsed + '</span></span>',
@@ -366,12 +367,203 @@
     ["delta", "DELTA", "10Δ put → ATM → 10Δ call, the way desks quote the smile"]
   ];
   function smlControls() {
-    var ax = S.ui.smileX || "strike";
-    return '<div class="play-set opt-seg"><span class="lb td">X-AXIS</span>' + SMILE_AXES.map(function (a) {
+    var ax = S.ui.smileX || "strike", three = S.ui.smView === "3d";
+    var view = '<div class="play-set opt-seg"><span class="lb td">VIEW</span>' +
+      '<button class="play-btn' + (three ? "" : " is-on") + '" data-lx-smv="2d" title="one curve per maturity">SMILE</button>' +
+      '<button class="play-btn' + (three ? " is-on" : "") + '" data-lx-smv="3d" title="strike × maturity × vol — drag to rotate">3D SURFACE</button></div>';
+    var cams = three ? '<div class="play-set opt-seg"><span class="lb td">CAMERA</span>' + SURF_VIEWS.map(function (v) {
+      return '<button class="play-btn" data-lx-cam="' + v[0] + '" title="' + esc(v[4]) + '">' + v[1] + '</button>';
+    }).join("") + '</div>' : "";
+    return view + '<div class="play-set opt-seg"><span class="lb td">X-AXIS</span>' + SMILE_AXES.map(function (a) {
       return '<button class="play-btn' + (ax === a[0] ? " is-on" : "") + '" data-lx-smx="' + a[0] + '" title="' + esc(a[2]) + '">' + a[1] + '</button>';
-    }).join("") + '</div>';
+    }).join("") + '</div>' + cams;
   }
+
+  // ---------- 3D surface ----------
+  // An SVG mesh: x = the smile axis, y = maturity on a √T scale (short tenors get room),
+  // z = implied vol. Orthographic camera (yaw, pitch); quads drawn far → near (painter's
+  // algorithm), coloured by vol. Dragging only re-draws the <g>, so the pointer capture
+  // on the <svg> survives; market changes re-draw the whole box through refresh().
+  var SURF_DAYS = [7, 14, 30, 61, 91, 182, 274, 365, 548, 730];
+  var SURF_VIEWS = [
+    ["3d", "3D", -38, 26, "the default oblique view"],
+    ["front", "SMILES", 0, 2, "look down the maturity axis: every smile stacked"],
+    ["side", "TERM", -90, 2, "look down the strike axis: the term structure"],
+    ["top", "TOP", 0, 89, "from above: a heatmap of the surface"]
+  ];
+  var RAMP = ["#2c7bb6", "#00a6ca", "#00ccbc", "#90eb9d", "#ffff8c", "#f9d057", "#f29e2e", "#e76818", "#d7191c"];
+  var SURF_R = 100;           // world → SVG units
+  var surfPts = [];           // projected grid vertices, for the hover readout
+  function rampColor(t) {
+    t = Math.max(0, Math.min(1, t));
+    var pos = t * (RAMP.length - 1), i = Math.min(RAMP.length - 2, Math.floor(pos)), u = pos - i;
+    function ch(h, k) { return parseInt(h.substr(1 + 2 * k, 2), 16); }
+    var rgb = [0, 1, 2].map(function (k) { return Math.round(ch(RAMP[i], k) + (ch(RAMP[i + 1], k) - ch(RAMP[i], k)) * u); });
+    return "rgb(" + rgb.join(",") + ")";
+  }
+  function surfCam() {
+    var c = S.ui.cam || {};
+    return { yaw: typeof c.yaw === "number" ? c.yaw : SURF_VIEWS[0][2], pitch: typeof c.pitch === "number" ? c.pitch : SURF_VIEWS[0][3] };
+  }
+  function surfXLabel(x, ax) {
+    if (ax === "delta") return x < 50 ? f(x, 0) + "Δp" : x > 50 ? f(100 - x, 0) + "Δc" : "ATM";
+    return (ax === "moneyness" ? "K/F " : "K ") + f(x, 0) + "%";
+  }
+  function surfInner() {
+    var m = S.mkt, p = pos(), sh = S.scen.shift, ax = S.ui.smileX || "strike";
+    var lo = ax === "delta" ? 5 : 60, hi = ax === "delta" ? 95 : 140, N = 28, xs = [];
+    for (var i = 0; i <= N; i++) xs.push(lo + (hi - lo) * i / N);
+    var g = L().surface(m, ax, xs, SURF_DAYS, sh);
+    var zlo = Math.floor(g.min / 5) * 5, zhi = Math.ceil(g.max / 5) * 5;
+    if (zhi - zlo < 10) zhi = zlo + 10;
+    var t0 = Math.sqrt(SURF_DAYS[0] / 365), t1 = Math.sqrt(SURF_DAYS[SURF_DAYS.length - 1] / 365);
+    function U(x) { return (x - lo) / (hi - lo) * 2 - 1; }
+    function V(d) { return (Math.sqrt(Math.max(SURF_DAYS[0], Math.min(730, d)) / 365) - t0) / (t1 - t0) * 2 - 1; }
+    function W(z) { return (z - zlo) / (zhi - zlo) * 1.2 - 0.6; }
+    var c = surfCam(), ya = c.yaw * Math.PI / 180, pa = c.pitch * Math.PI / 180;
+    var cy = Math.cos(ya), sy = Math.sin(ya), cp = Math.cos(pa), sp = Math.sin(pa);
+    function P(u, v, w) {
+      var x1 = u * cy - v * sy, y1 = u * sy + v * cy;
+      return { x: SURF_R * x1, y: -SURF_R * (w * cp + y1 * sp), d: y1 * cp - w * sp };
+    }
+    function pt(q) { return q.x.toFixed(1) + "," + q.y.toFixed(1); }
+    function line(a, b, cls) { return '<line class="' + cls + '" x1="' + a.x.toFixed(1) + '" y1="' + a.y.toFixed(1) + '" x2="' + b.x.toFixed(1) + '" y2="' + b.y.toFixed(1) + '"/>'; }
+    function text(q, s, cls, anchor) { return '<text class="' + cls + '" x="' + q.x.toFixed(1) + '" y="' + q.y.toFixed(1) + '" text-anchor="' + (anchor || "middle") + '">' + esc(s) + '</text>'; }
+
+    // grid vertices
+    var V3 = g.z.map(function (row, i) {
+      return row.map(function (z, j) { return P(U(xs[j]), V(SURF_DAYS[i]), W(z)); });
+    });
+    surfPts = [];
+    V3.forEach(function (row, i) { row.forEach(function (q, j) { surfPts.push({ x: q.x, y: q.y, i: i, j: j, x0: xs[j], z: g.z[i][j] }); }); });
+
+    // floor + axes (behind the mesh)
+    var fz = -0.6, out = [];
+    var c00 = P(-1, -1, fz), c10 = P(1, -1, fz), c11 = P(1, 1, fz), c01 = P(-1, 1, fz);
+    out.push('<polygon class="sf-floor" points="' + [c00, c10, c11, c01].map(pt).join(" ") + '"/>');
+    var xt = ax === "delta" ? [10, 25, 50, 75, 90] : [60, 80, 100, 120, 140];
+    // An axis seen end-on collapses its labels onto one spot: skip those (front view hides
+    // maturity, side view hides strike, top view hides vol).
+    var showX = Math.abs(cy) > 0.2 || pa > 1.2, showT = Math.abs(sy) > 0.2 || pa > 1.2, showZ = c.pitch < 75;
+    xt.forEach(function (x) {
+      var a = P(U(x), -1, fz), b = P(U(x), 1, fz);
+      out.push(line(a, b, "sf-grid"));
+      if (showX) out.push(text(P(U(x), -1.18, fz), surfXLabel(x, ax).replace(/^K(\/F)? /, ""), "sf-lbl"));
+    });
+    [[7, "1W"], [30, "1M"], [91, "3M"], [182, "6M"], [365, "1Y"], [730, "2Y"]].forEach(function (t) {
+      var a = P(-1, V(t[0]), fz), b = P(1, V(t[0]), fz);
+      out.push(line(a, b, "sf-grid"));
+      if (showT) out.push(text(P(1.16, V(t[0]), fz), t[1], "sf-lbl", "start"));
+    });
+    if (showZ) {
+      for (var zv = zlo; zv <= zhi + 1e-9; zv += (zhi - zlo > 30 ? 10 : 5)) {
+        var qa = P(-1, 1, W(zv)), qb = P(-1.06, 1, W(zv));
+        out.push(line(qa, qb, "sf-axis"));
+        out.push(text(P(-1.12, 1, W(zv)), zv + "%", "sf-lbl", "end"));
+      }
+      out.push(line(P(-1, 1, fz), P(-1, 1, 0.6), "sf-axis"));
+    }
+    if (showX) out.push(text(P(0, -1.36, fz), ax === "delta" ? "DELTA" : ax === "moneyness" ? "K / F" : "STRIKE % S₀", "sf-ttl"));
+    if (showT && Math.abs(cy) > 0.2) out.push(text(P(1.5, 0, fz), "MATURITY", "sf-ttl", "start"));
+
+    // mesh, far → near
+    var quads = [];
+    for (var a = 0; a < V3.length - 1; a++) {
+      for (var b = 0; b < xs.length - 1; b++) {
+        var q = [V3[a][b], V3[a][b + 1], V3[a + 1][b + 1], V3[a + 1][b]];
+        var zAvg = (g.z[a][b] + g.z[a][b + 1] + g.z[a + 1][b + 1] + g.z[a + 1][b]) / 4;
+        quads.push({ d: (q[0].d + q[1].d + q[2].d + q[3].d) / 4, pts: q, col: rampColor((zAvg - zlo) / (zhi - zlo)) });
+      }
+    }
+    quads.sort(function (x, y) { return y.d - x.d; });
+    quads.forEach(function (q) { out.push('<polygon class="sf-q" fill="' + q.col + '" points="' + q.pts.map(pt).join(" ") + '"/>'); });
+
+    // ATM line and arbitrage-failing tenors, on top
+    var atx = ax === "delta" ? 50 : 100;
+    var atm = SURF_DAYS.map(function (d) { return P(U(atx), V(d), W(L().smileCurve(m, d / 365, ax, [atx], sh)[0])); });
+    out.push('<polyline class="sf-atm" points="' + atm.map(pt).join(" ") + '"/>');
+    g.arb.forEach(function (ok, i) {
+      if (!ok) out.push('<polyline class="sf-arb" points="' + V3[i].map(pt).join(" ") + '"/>');
+    });
+
+    // the position's legs, sitting on the surface
+    var mats = [];
+    p.forEach(function (l) { if (l.t !== "S" && mats.indexOf(l.days) < 0) mats.push(l.days); });
+    mats.sort(function (x, y) { return x - y; });
+    p.forEach(function (l) {
+      if (l.t === "S") return;
+      var T = l.days / 365, x = L().smileX(m, l.k, T, ax);
+      if (x < lo || x > hi) return;
+      var q = P(U(x), V(l.days), W(L().vol(m, l.k, T, m.spot, sh)));
+      out.push('<circle class="sf-leg" cx="' + q.x.toFixed(1) + '" cy="' + q.y.toFixed(1) + '" r="4" fill="' + CURVE[Math.max(0, mats.indexOf(l.days)) % CURVE.length] + '"/>');
+    });
+    out.push('<circle id="lx-surf-hl" class="sf-hl" cx="0" cy="0" r="0"/>');
+    S._surf = { zlo: zlo, zhi: zhi, arbBad: g.arb.filter(function (ok) { return !ok; }).length };
+    return out.join("");
+  }
+  function outSurface() {
+    var inner = surfInner(), info = S._surf, sh = S.scen.shift;
+    return '<svg class="lx-surf" viewBox="-185 -150 400 300" role="img" aria-label="implied volatility surface">' +
+      '<g id="lx-surf-g">' + inner + '</g></svg>' +
+      '<div class="lx-note"><span id="lx-surf-read">hover for a point · drag to rotate · double-click to reset</span></div>' +
+      '<div class="lx-note td"><span class="lx-ramp" style="background:linear-gradient(90deg,' + RAMP.join(",") + ');"></span> ' +
+      info.zlo + '% → ' + info.zhi + '% · dashed = ATM' + ((S.ui.smileX || "strike") === "delta" ? " (50Δ)" : " (K = 100% on this axis)") +
+      ' · dots = your legs' + (info.arbBad ? ' · <span class="tr">red = a tenor whose smile admits arbitrage</span>' : '') +
+      ' · moves live with ATM / term / ρ / ν' + (sh ? " and the " + sf(sh, 1) + " scenario shift" : "") + '</div>';
+  }
+  function wireSurface(box) {
+    var drag = null;
+    function svgPoint(svg, e) {
+      var pt = svg.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY;
+      var mtx = svg.getScreenCTM();
+      return mtx ? pt.matrixTransform(mtx.inverse()) : null;
+    }
+    function redraw() {
+      var gEl = box.querySelector("#lx-surf-g");
+      if (gEl) gEl.innerHTML = surfInner();
+    }
+    box.addEventListener("pointerdown", function (e) {
+      var svg = e.target.closest && e.target.closest("svg.lx-surf");
+      if (!svg) return;
+      var c = surfCam();
+      drag = { x: e.clientX, y: e.clientY, yaw: c.yaw, pitch: c.pitch, svg: svg };
+      try { svg.setPointerCapture(e.pointerId); } catch (_e) {}
+      e.preventDefault();
+    });
+    box.addEventListener("pointermove", function (e) {
+      if (drag) {
+        S.ui.cam = {
+          yaw: Math.round(drag.yaw + (e.clientX - drag.x) * 0.5),
+          pitch: Math.max(0, Math.min(89, Math.round(drag.pitch + (e.clientY - drag.y) * 0.4)))
+        };
+        redraw();
+        return;
+      }
+      var svg = e.target.closest && e.target.closest("svg.lx-surf"), read = box.querySelector("#lx-surf-read"), hl = box.querySelector("#lx-surf-hl");
+      if (!svg || !read) return;
+      var q = svgPoint(svg, e), best = null, bd = 144;
+      if (!q) return;
+      surfPts.forEach(function (v) {
+        var dd = (v.x - q.x) * (v.x - q.x) + (v.y - q.y) * (v.y - q.y);
+        if (dd < bd) { bd = dd; best = v; }
+      });
+      if (!best) { read.textContent = "hover for a point · drag to rotate · double-click to reset"; if (hl) hl.setAttribute("r", "0"); return; }
+      read.innerHTML = '<span class="tw">' + esc(surfXLabel(best.x0, S.ui.smileX || "strike")) + '</span> · <span class="tw">' +
+        esc(SURF_DAYS[best.i] === 548 ? "18M" : tenorName(SURF_DAYS[best.i])) + '</span> · σ <span class="tb">' + f(best.z, 1) + '%</span>';
+      if (hl) { hl.setAttribute("cx", best.x.toFixed(1)); hl.setAttribute("cy", best.y.toFixed(1)); hl.setAttribute("r", "4"); }
+    });
+    function end() { if (drag) { drag = null; save(); } }
+    box.addEventListener("pointerup", end);
+    box.addEventListener("pointercancel", end);
+    box.addEventListener("dblclick", function (e) {
+      if (!(e.target.closest && e.target.closest("svg.lx-surf"))) return;
+      S.ui.cam = { yaw: SURF_VIEWS[0][2], pitch: SURF_VIEWS[0][3] };
+      save(); redraw();
+    });
+  }
+
   function outSmile() {
+    if (S.ui.smView === "3d") return outSurface();
     var m = S.mkt, p = pos(), sh = S.scen.shift, ax = S.ui.smileX || "strike";
     var mats = [];
     p.forEach(function (l) { if (l.t !== "S" && mats.indexOf(l.days) < 0) mats.push(l.days); });
@@ -636,6 +828,13 @@
     on("[data-lx-axis]", function (el) { S.ui.axis = el.getAttribute("data-lx-axis"); changed(); });
     on("[data-lx-hz]", function () { S.ui.horizons = !S.ui.horizons; changed(); });
     on("[data-lx-smx]", function (el) { S.ui.smileX = el.getAttribute("data-lx-smx"); changed(); });
+    on("[data-lx-smv]", function (el) { S.ui.smView = el.getAttribute("data-lx-smv"); changed(); });
+    on("[data-lx-cam]", function (el) {
+      var v = SURF_VIEWS.filter(function (x) { return x[0] === el.getAttribute("data-lx-cam"); })[0];
+      if (v) { S.ui.cam = { yaw: v[2], pitch: v[3] }; changed(); }
+    });
+    var smileBox = rootEl.querySelector("#lx-smile");
+    if (smileBox) wireSurface(smileBox);
     wireCells(rootEl);
   }
 
