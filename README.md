@@ -1,5 +1,7 @@
 # Vol Lab
 
+**Try it in your browser: https://poctave.github.io/vol-lab/**
+
 An options and volatility sandbox that runs in the browser. You control the market and see how any position behaves.
 
 - **Position builder**: free strikes and maturities per leg, delta hedge, presets from a book of 30+ strategies. The structure is named automatically.
@@ -12,7 +14,7 @@ An options and volatility sandbox that runs in the browser. You control the mark
 
 ## Run it
 
-It is a static page with no build step and no dependencies: open `index.html` in a browser, or serve the folder (`python3 -m http.server`). State is kept in `localStorage`.
+Online: https://poctave.github.io/vol-lab/. Locally: it is a static page with no build step and no dependencies, so open `index.html` in a browser, or serve the folder (`python3 -m http.server`). State is kept in `localStorage`.
 
 ## Tests
 
